@@ -1,0 +1,452 @@
+#pragma config FOSC   = XTPLL_XT  
+#pragma config PLLDIV = 1		  
+#pragma config CPUDIV = OSC1_PLL2 
+#pragma config PWRT   = ON		  
+#pragma config WDT    = OFF		  
+#pragma config LVP    = OFF		 	
+#pragma config BOR    = OFF		  
+#pragma config DEBUG  = ON		  	
+#pragma config VREGEN = OFF		  
+#pragma config PBADEN = OFF 	  	
+#pragma config MCLRE  = ON	 
+//LIBRERIAS
+#include <xc.h>
+#include "LCD.h"
+#include "i2c.h"
+#include "Serial.h"
+#include "RTR.h"
+#include "DHT11.h"
+#include "ADC.h"
+#define _XTAL_FREQ 48000000UL
+char ESTADO = 0,CUENTA = 0,FUNCION = 0,NUM_F = 0;
+signed int ANGULO = 0; 
+char GRADOS[]={0x0C,0x12,0x12,0x0C,0x00,0x00,0x00,0x00};
+char TEMPI[]={0x04,0x0A,0x0A,0x0A,0x0A,0x11,0x11,0x0E};
+char GOTA[]={0x00,0x04,0x04,0x0A,0x11,0x11,0x0E,0x00};
+
+int temperatura,dtemp,humedad,dhum,estado,registro;
+int T1,T2;
+float pre_cta_on_0 = 0;
+float pre_cta_off_0 = 0;
+float pre_cta_on_1 = 0;
+float pre_cta_off_1 = 0;
+float pre_cta_on_2 = 0;
+float pre_cta_off_2 = 0;
+unsigned int cta_on_0 = 0, cta_off_0 = 0;
+unsigned int cta_on_1 = 0, cta_off_1 = 0;
+unsigned int cta_on_2 = 0, cta_off_2 = 0;
+char cta_msb_0, cta_lsb_0;
+char cta_msb_1, cta_lsb_1;
+char cta_msb_2, cta_lsb_2;
+char cruce = 0;
+void calculon_1(int blablabla)
+{
+    pre_cta_on_0 = 63428 - (blablabla * 4.712 * 2.5); //63428 y 4.712
+    pre_cta_off_0 = 70832 - cta_on_0;
+    cta_on_0 = pre_cta_on_0;
+    cta_off_0 = pre_cta_off_0;       
+}
+void calculon_2(int blablabla)
+{
+    pre_cta_on_1 = 63428 - (blablabla * 4.712 * 2.5); //63428 y 4.712
+    pre_cta_off_1 = 70832 - cta_on_1;
+    cta_on_1 = pre_cta_on_1;
+    cta_off_1 = pre_cta_off_1;       
+}
+
+void JUNTOS(int A, int B){
+    pre_cta_on_0 = 63428 - (A * 4.712 * 2.5); //63428 y 4.712
+    pre_cta_off_0 = 70832 - cta_on_0;
+    cta_on_0 = pre_cta_on_0;
+    cta_off_0 = pre_cta_off_0;
+    
+    pre_cta_on_1 = 63428 - (B * 4.712 * 2.5); //63428 y 4.712
+    pre_cta_off_1 = 70832 - cta_on_1;
+    cta_on_1 = pre_cta_on_1;
+    cta_off_1 = pre_cta_off_1; 
+}
+
+void main() 
+{
+    LATD = 0; // VALORES DEL PUERTO D EN BLANCO
+    LATB = 0; // VALORES DEL PUERTO B EN BLANCO
+    TRISD = 0;  // CONFIGURAR QUE TODO EL PUERTO D SEA SALIDA
+    TRISB = 0x03; // CONFIGURAR PARA QUE TODO EL PUERTO B SEA SALIDA EXCEPTO RB0 Y RB1 ENTRADAS PARA I2C 
+    TRISAbits.RA0 = 1; // ENTRADA ANALOGICA PARA EL PRIMER POTENCIOMETRO
+    TRISAbits.RA1 = 1; // ENTRADA ANALOGICA PARA EL SEGUNDO POTENCIOMETRO
+    TRISAbits.RA2 = 1; // ENTRADA ANALOGICA PARA EL TERCER POTENCIOMETRO  
+    TRISEbits.RE1 = 0; // SALIDA SERVO 1
+    TRISEbits.RE2 = 0; // SALIDA SERVO 2
+    __delay_ms(15); // INICIALIZACION DEL DISPLAY PARA NO QUEMARLO 
+    LCD_CONFIG(); // INICIALIZO LCD PRENDO LA OCNFIGURACION    
+    GENERACARACTER(GRADOS,0); // GENERO EL SIMBOLO DEL GRADOS
+    GENERACARACTER(TEMPI,1); // GENERO EL SIMBOLO DE TEMPERATURA 
+    GENERACARACTER(GOTA,2); // GENERO EL SIMBOLO DE HUMEDAD
+    BORRAR_LCD(); // BORRO CUALQUIER COSA DEL LCD
+    CURSOR_ONOFF(OFF); // APAGO CURSOR PARA MEJOR VISUALIZACION
+    I2C_Master_Init(100000); // INICIALIZO I2C ESTE ES PARA EL RELOJ A TIEMPO REAL 
+    //Inicializa_ds1307(0x00,0x28,0x20,0x01,0x25,0x06,0x19,0x00); // PARA CUANDO QUIERA MANDARLE UNA NUEVA HORA   
+    ADC_init(); // INICIALIZO UN ANALODIGO 
+    Abrir_Serial(_57600); // HABILITO EL SERIAL A UNA FRECUENCIA MAS ALTA PARA QUE NO HAYA PROBLEMAS CON TIMER 0 NI TIMER 1       
+    T0CON =  0x81; // TIMER 0 APAGADO (JUGADA CON EL TIMER 1 PARA PWM) PREESCALER A 8 Y DE 16 BITS
+    T0CONbits.TMR0ON = 1;
+    INTCONbits.TMR0IE=1; // PRENDO EL TIMER 0 Y ESTO COMIENZA
+    INTCONbits.PEIE=1; // INTERRUPCIONES EXTERNAS
+    INTCONbits.GIE=1; // MASCARA DE INTERRUPCIONES GLOBALES    
+    calculon_1(286);
+    calculon_2(278);
+    //MAIN
+    while(1){     
+        if (ESTADO == 0) // ESTADO PRINCIPAL AQUI VENDRA EL ORIGRAMA CUANDO LO HAYA CULMINADO O SE REINICIE 
+        {   
+            BORRAR_LCD(); 
+            CUENTA = 0;
+            FUNCION = 0;
+            NUM_F = 0;
+            TX_MENSAJE_EUSART("\fBIENVENIDO A MICROCONTROLADORES",32);
+            TX_MENSAJE_EUSART("\n\rMENU:",7);
+            TX_MENSAJE_EUSART("\n\r(1) Dibujar",13);
+            TX_MENSAJE_EUSART("\n\r(2) Que Hora Es?",18);
+            TX_MENSAJE_EUSART("\n\r(3) A que Temperatura y Humedad Estamos?",42);
+            TX_MENSAJE_EUSART("\n\rElija una opcion: ",20);
+            ESTADO = 1;
+        }
+        else if (ESTADO == 1)
+        {
+              RELOJ();
+        }     
+        else if (ESTADO == 2)
+        {  
+            if (NUM_F == 1)
+            {
+                TX_MENSAJE_EUSART("\fBIENVENIDO A MICROCONTROLADORES",32);
+                TX_MENSAJE_EUSART("\n\rOPCION ELEGIDA:",17);
+                TX_MENSAJE_EUSART("\n\r(1) Manual...",15);
+                TX_MENSAJE_EUSART("\n\rPUEDES MOVER EL CURSOR",24);
+                TX_MENSAJE_EUSART("\n\n\rPARA VOLVER PRESIONE ENTER",29);
+                BORRAR_LCD();
+                ESTADO = 3;
+            }        
+            else if (NUM_F == 2)
+            {
+                TX_MENSAJE_EUSART("\fBIENVENIDO A MICROCONTROLADORES",32);
+                TX_MENSAJE_EUSART("\n\rOPCION ELEGIDA:",17);
+                TX_MENSAJE_EUSART("\n\r(2) Hora...",13);
+                TX_MENSAJE_EUSART("\n\rLA HORA ES: ",14);          
+                TX_CHAR_EUSART((cadena[2]>>4)+'0');
+                TX_CHAR_EUSART((cadena[2]&0x0F)+'0');
+                TX_CHAR_EUSART(':');
+                TX_CHAR_EUSART((cadena[1]>>4)+'0');
+                TX_CHAR_EUSART((cadena[1]&0x0F)+'0');  
+                TX_MENSAJE_EUSART("\n\n\rPARA VOLVER PRESIONE ENTER",29); 
+                ESTADO = 4;
+            }
+            else if (NUM_F == 3)
+            {
+                TX_MENSAJE_EUSART("\fBIENVENIDO A MICROCONTROLADORES",32);
+                TX_MENSAJE_EUSART("\n\rOPCION ELEGIDA:",17);
+                TX_MENSAJE_EUSART("\n\r(3) Temperatura y Humedad...",30);
+                TX_MENSAJE_EUSART("\n\rLA TEMPERATURA ES: ",21);          
+                TX_CHAR_EUSART(temperatura/10+'0');
+                TX_CHAR_EUSART(temperatura%10+'0');
+                TX_CHAR_EUSART('.');
+                TX_CHAR_EUSART(dtemp+'0');
+                TX_CHAR_EUSART(' ');
+                TX_CHAR_EUSART('C');       
+                TX_MENSAJE_EUSART("\n\rLA HUMEDAD ES: ",17);                
+                TX_CHAR_EUSART(humedad/10+'0');
+                TX_CHAR_EUSART(humedad%10+'0');
+                TX_CHAR_EUSART('.');
+                TX_CHAR_EUSART(dhum+'0');
+                TX_CHAR_EUSART('%');                 
+                TX_MENSAJE_EUSART("\n\n\rPARA VOLVER PRESIONE ENTER",29); 
+                ESTADO = 5;
+            }
+        }
+        else if (ESTADO == 3) // MOVER SERVOS
+        {
+            T1 = ADC_read(0);
+            calculon_1(T1);
+            T2 = ADC_read(1);
+            calculon_2(T2);
+            POS_CURSOR(1,0);
+            ESCRIBE_MENSAJE("DIBUJANDO...",12);           
+            POS_CURSOR(2,0);
+            ENVIA_CHAR(T1/1000+'0');
+            ENVIA_CHAR((T1%1000)/100+'0');
+            ENVIA_CHAR(((T1%1000)%100)/10+'0');
+            ENVIA_CHAR(((T1%1000)%100)%10+'0');
+            ENVIA_CHAR(' ');
+            ENVIA_CHAR(T2/1000+'0');
+            ENVIA_CHAR((T2%1000)/100+'0');
+            ENVIA_CHAR(((T2%1000)%100)/10+'0');
+            ENVIA_CHAR(((T2%1000)%100)%10+'0');
+        } 
+        else if (ESTADO == 4) // ESCRIBIR HORA
+        {
+            POS_CURSOR(1,0);
+            ESCRIBE_MENSAJE("LA HORA ES:",11);           
+            D2_IZ();
+            D2_DE();
+            ESTADO = 0;           
+        } 
+        else if (ESTADO == 5) // ESCRIBIR TEMPERATURA Y HUMEDAD
+        {
+            RELOJ();
+        }     
+    }    
+}
+
+void __interrupt (high_priority) INTER(void)
+{
+    if(INTCONbits.TMR0IF==1)
+    {
+        if (cruce < 10)
+        {
+            if (PORTEbits.RE1 == 1)
+            {
+                LATEbits.LE1 = 0;
+                cta_msb_0 = cta_off_0 >> 8;
+                cta_lsb_0 = cta_off_0 & 0x00ff;
+                TMR0H = cta_msb_0;
+                TMR0L = cta_lsb_0;
+            }
+            else
+            {
+                LATEbits.LE1 = 1;
+                cta_msb_0 = cta_on_0 >> 8;
+                cta_lsb_0 = cta_on_0 & 0x00ff;
+                TMR0H = cta_msb_0;
+                TMR0L = cta_lsb_0;
+            }
+            cruce++;
+        }
+        else if (cruce >= 10 && cruce <20){
+            if (PORTEbits.RE2 == 1){
+                LATEbits.LE2 = 0;
+                cta_msb_1 = cta_off_1 >> 8;
+                cta_lsb_1 = cta_off_1 & 0x00ff;
+                TMR0H = cta_msb_1;
+                TMR0L = cta_lsb_1;
+            }
+            else{
+                LATEbits.LE2 = 1;
+                cta_msb_1 = cta_on_1 >> 8;
+                cta_lsb_1 = cta_on_1 & 0x00ff;
+                TMR0H = cta_msb_1;
+                TMR0L = cta_lsb_1;
+            }
+            cruce++;
+        }
+        else{
+            cruce = 0;
+        }
+        INTCONbits.TMR0IF = 0;
+    } 
+    // SERIAL
+    char DATO;   
+    if (PIR1bits.RCIF==1)
+    {
+        DATO = RCREG;    
+        if (DATO>='0' && DATO<='9')
+        {
+            if (CUENTA == 0)
+            {
+                TX_CHAR_EUSART(DATO);
+                FUNCION = DATO;
+                CUENTA ++;
+            }         
+        }        
+        else if (DATO == '\r')
+        {
+            if (ESTADO == 1)
+            {
+                if (FUNCION == '1' || FUNCION == '2' || FUNCION == '3')
+                {
+                    ESTADO = 2;
+                    CUENTA = 0;
+                    if (FUNCION == '1')
+                    {
+                        NUM_F = 1;
+                    }
+                    else if (FUNCION == '2')
+                    {
+                        NUM_F = 2;
+                    }
+                    else if (FUNCION == '3')
+                    {
+                        NUM_F = 3;
+                    }
+                }
+                else
+                {
+                    TX_MENSAJE_EUSART("\n\n\rNO EXISTE ESA FUNCION!!!",27);
+                    __delay_ms(500);
+                    ESTADO = 0;
+                    CUENTA = 0;
+                }         
+            }      
+            else if (ESTADO == 3 || ESTADO == 4 || ESTADO == 5)
+            {
+                ESTADO = 0;            
+            }         
+        }
+    }    
+}
+D1_IZ(){
+    JUNTOS(9,207);
+    __delay_ms(200);
+    JUNTOS(35,168);
+    __delay_ms(200);
+     JUNTOS(58,131); 
+    __delay_ms(200);
+}
+D1_DE(){
+    JUNTOS(43,245);
+    __delay_ms(200);
+    JUNTOS(65,228);
+    __delay_ms(200);
+    JUNTOS(116,200);  
+    __delay_ms(200);
+}
+D2_IZ(){
+    JUNTOS(9,157);
+    __delay_ms(200);
+    JUNTOS(9,179);
+    __delay_ms(200);
+    JUNTOS(15,203);
+    __delay_ms(200); 
+    JUNTOS(25,216);
+    __delay_ms(200);
+    JUNTOS(40,194);
+    __delay_ms(200);
+    JUNTOS(51,160);
+    __delay_ms(200);
+    JUNTOS(49,135);
+    __delay_ms(200);
+    JUNTOS(72,157);
+    __delay_ms(200);
+}
+D2_DE(){
+    JUNTOS(50,216);
+    __delay_ms(200);
+    JUNTOS(53,240);
+    __delay_ms(200);
+    JUNTOS(71,255);
+    __delay_ms(200); 
+    JUNTOS(82,237);
+    __delay_ms(200);
+    JUNTOS(80,211);
+    __delay_ms(200);
+    JUNTOS(74,196);
+    __delay_ms(200);
+    JUNTOS(123,226);
+    __delay_ms(200);
+}
+D3_IZ(){
+    JUNTOS(10,178);
+    __delay_ms(200);
+    JUNTOS(13,203);
+    __delay_ms(200);
+    JUNTOS(22,219);
+    __delay_ms(200);
+    JUNTOS(30,198);
+    __delay_ms(200);
+    JUNTOS(35,172);
+    __delay_ms(200);
+    JUNTOS(45,196);
+    __delay_ms(200);
+    JUNTOS(61,201);
+    __delay_ms(200);
+    JUNTOS(73,182);
+    __delay_ms(200);
+    JUNTOS(73,146);
+    __delay_ms(200);
+    JUNTOS(54,118);
+    __delay_ms(200);
+    
+}
+D3_DE(){
+    JUNTOS(33,220);
+    __delay_ms(200);
+    JUNTOS(49,248);
+    __delay_ms(200);
+    JUNTOS(77,248);
+    __delay_ms(200);
+    JUNTOS(77,220);
+    __delay_ms(200);
+    JUNTOS(124,227);
+    __delay_ms(200);
+    JUNTOS(135,223);
+    __delay_ms(200);
+    JUNTOS(104,191);
+    __delay_ms(200);
+    JUNTOS(75,187);
+    __delay_ms(200);
+}
+
+GRADITOS_O(){
+    JUNTOS(82,285);
+    __delay_ms(200);
+    JUNTOS(105,295);
+    __delay_ms(200);
+    JUNTOS(111,278);
+    __delay_ms(200);
+    JUNTOS(94,263);
+    __delay_ms(200);
+    JUNTOS(80,265);
+    __delay_ms(200);
+    JUNTOS(82,285);
+    __delay_ms(200);    
+}
+
+
+
+
+
+RELOJ(){
+    DHT11_init();
+    estado = DHT11_CheckResponse();
+    if (estado)
+    {
+        registro = DHT11_ReadData(&humedad,&dhum,&temperatura,&dtemp);
+        if (registro)
+        {
+            POS_CURSOR(1,0);
+            ESCRIBE_MENSAJE("HORA:",5);
+            LeeDatos_ds1307(0x00,cadena,7);
+            POS_CURSOR(1,5);
+            ENVIA_CHAR((cadena[2]>>4)+'0');
+            ENVIA_CHAR((cadena[2]&0x0F)+'0');
+            ENVIA_CHAR(':');
+            ENVIA_CHAR((cadena[1]>>4)+'0');
+            ENVIA_CHAR((cadena[1]&0x0F)+'0');
+            ENVIA_CHAR(':');
+            ENVIA_CHAR((cadena[0]>>4)+'0');
+            ENVIA_CHAR((cadena[0]&0x0F)+'0'); 
+            POS_CURSOR(2,0);
+            ENVIA_CHAR(1);
+            ENVIA_CHAR(':');
+            ENVIA_CHAR(temperatura/10+'0');
+            ENVIA_CHAR(temperatura%10+'0');
+            ENVIA_CHAR('.');
+            ENVIA_CHAR(dtemp+'0');
+            ENVIA_CHAR(0);
+            ENVIA_CHAR('C');       
+            ENVIA_CHAR(' ');
+            ENVIA_CHAR(2);
+            ENVIA_CHAR(':');     
+            ENVIA_CHAR(humedad/10+'0');
+            ENVIA_CHAR(humedad%10+'0');
+            ENVIA_CHAR('.');
+            ENVIA_CHAR(dhum+'0');
+            ENVIA_CHAR('%');         
+        }     
+        else 
+        {
+            POS_CURSOR(1,0);
+            ESCRIBE_MENSAJE("ERROR VER CONEX.",16);
+            __delay_ms(3000);
+        }
+    }
+}
